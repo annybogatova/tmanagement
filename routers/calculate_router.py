@@ -6,6 +6,7 @@ from compute_service import run_simulations
 
 router = APIRouter(prefix="/calculate", tags=["calculate"])
 
+
 def generate_random_tasks(n_tasks: int,
                           max_preds: int = 3,
                           max_duration: int = 10,
@@ -32,12 +33,15 @@ def generate_random_tasks(n_tasks: int,
         })
     return tasks
 
+
 @router.post("/orders/random")
 async def calculate_random_order(n_tasks: int = Query(50, ge=1, le=10000),
                                  iterations: int = Query(1_000_000, ge=1, le=5_000_000),
                                  workers: Optional[int] = Query(None),
                                  max_resource: int = Query(10, gt=0),
-                                 seed: Optional[int] = Query(None)):   # начальное значение для генерации
+                                 seed: Optional[int] = Query(None),  # начальное значение для генерации
+                                 log_time_unit: Optional[int] = Query(None)
+                                 ):
     """
         Эндпоинт:
         - n_tasks: сколько задач в проекте (не количество последовательностей).
@@ -63,7 +67,7 @@ async def calculate_random_order(n_tasks: int = Query(50, ge=1, le=10000),
         10000,   # sample_size — сколько значений сохраняем для приближённой медианы (экономия памяти)
         256,     # chunksize — размер порции работ, передаваемых каждому процессу
         True,     # return_best_order — возвращать ли лучший найденный порядок
-        log_dir="logs"
-
+        log_dir="logs",
+        log_time_unit=log_time_unit
     )
     return result_stats

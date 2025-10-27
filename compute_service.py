@@ -1,51 +1,24 @@
-﻿# python
-import random
+﻿import random
 import heapq
 import math
 import time
 import json
-import argparse
+
 from typing import List, Dict, Tuple, Optional, Any
 from concurrent.futures import ProcessPoolExecutor
 
 MAX_RESOURCE_DEFAULT = 10
 
-# def generate_random_tasks(n_tasks: int,
-#                           max_preds: int = 3,
-#                           max_duration: int = 10,
-#                           max_resource_per_task: int = 5,
-#                           seed: Optional[int] = None) -> List[Dict]:
-#     """
-#         Генерирует список задач (каждая задача — dict с keys: id, duration, resource, preds).
-#         - n_tasks: количество задач в одном проекте (вершины DAG).
-#         - preds: список id предшественников (чтобы гарантировать топологические зависимости).
-#     """
-#
-#     rng = random.Random(seed)
-#     tasks = []
-#     for tid in range(1, n_tasks + 1):
-#         if tid == 1:
-#             preds = []
-#         else:
-#             # случайно выбираем k предшественников из предыдущих задач (0..max_preds)
-#             k = rng.randint(0, min(max_preds, tid - 1))
-#             preds = rng.sample(range(1, tid), k) if k > 0 else []
-#         tasks.append({
-#             "id": tid,
-#             "duration": rng.uniform(1.0, float(max_duration)),  # длительность в тех же единицах, что и статистика
-#             "resource": rng.randint(1, max_resource_per_task),  # сколько ресурса занимает задача
-#             "preds": preds
-#         })
-#     return tasks
 
 def prepare_compact_data(tasks: List[dict]):
     """
         Преобразуем входной список задач в компактные структуры:
+
         - task_nodes: список id задач
         - task_info: {id: (duration, resource)}
         - preds_map: {id: [pred_ids]}
         Это ускоряет доступ внутри горячих функций.
-       """
+    """
     task_nodes = []
     task_info = {}
     preds_map = {}
@@ -55,6 +28,7 @@ def prepare_compact_data(tasks: List[dict]):
         task_info[tid] = (int(t["duration"]), int(t["resource"]))
         preds_map[tid] = [int(x) for x in t.get("preds", [])]
     return task_nodes, task_info, preds_map
+
 
 def _random_topo_order(nodes: List[int], preds_map: Dict[int, List[int]], rng: random.Random) -> List[int]:
     """
@@ -87,6 +61,7 @@ def _random_topo_order(nodes: List[int], preds_map: Dict[int, List[int]], rng: r
         order.extend(remaining)
     return order
 
+
 def _makespan_for_order(order: List[int], task_info: Dict[int, Tuple[float, int]], preds_map: Dict[int, List[int]],
                         max_resource: int) -> float:
     """
@@ -105,37 +80,42 @@ def _makespan_for_order(order: List[int], task_info: Dict[int, Tuple[float, int]
     """
     running = []  # heap of (end_time, task_id, resource)
     resource_in_use = 0
-    finish_times = {}
+    scheduled_end: Dict[int, float] = {}
     makespan = 0.0
+
     for tid in order:
         dur, res = task_info[tid]
-        # время, после которого задача может стартовать, исходя из предшественников
         preds = preds_map.get(tid, [])
-        earliest = max((finish_times.get(p, 0.0) for p in preds), default=0.0)
+        # проверка: все предки должны быть запланированы ранее в этом order
+        missing = [p for p in preds if p not in scheduled_end]
+        if missing:
+            raise RuntimeError(f"Invalid order: predecessors {missing} for task {tid} are not scheduled before it")
+        # earliest — по запланированным окончаниям предков
+        earliest = max((scheduled_end.get(p, 0.0) for p in preds), default=0.0)
         t = earliest
-        # освобождаем все задачи, что закончились до или в t
+        # освобождаем завершившиеся до или в t
         while running and running[0][0] <= t:
             end_time, _, ended_res = heapq.heappop(running)
             resource_in_use -= ended_res
-        # если ресурса не хватает — ждем ближайшего завершения (pop следующий), сдвигаем t и освобождаем ресурс
+        # если не хватает ресурса — ждем ближайшего завершения(ий)
         while resource_in_use + res > max_resource and running:
             end_time, _, ended_res = heapq.heappop(running)
-            # сдвигаем время на факт завершения
             if end_time > t:
                 t = end_time
             resource_in_use -= ended_res
-            # также освобождаем все задачи, ставшие завершёнными к новому t
             while running and running[0][0] <= t:
                 et2, _, er2 = heapq.heappop(running)
                 resource_in_use -= er2
-        # стартуем задачу
+        # стартуем задачу и сохраняем запланированное окончание
         start = t
         end = start + dur
-        finish_times[tid] = end
+        scheduled_end[tid] = end
         makespan = max(makespan, end)
         heapq.heappush(running, (end, tid, res))
         resource_in_use += res
+
     return makespan
+
 
 def _single_simulation_return_order(task_nodes, task_info, preds_map, max_resource, seed):
     """
@@ -149,10 +129,12 @@ def _single_simulation_return_order(task_nodes, task_info, preds_map, max_resour
     makespan = _makespan_for_order(order, task_info, preds_map, max_resource)
     return makespan, order
 
+
 def _worker_tuple(args):
     # адаптер для ProcessPoolExecutor.map — unpack аргументов
     seed, task_nodes, task_info, preds_map, max_resource = args
     return _single_simulation_return_order(task_nodes, task_info, preds_map, max_resource, seed)
+
 
 def run_simulations(tasks: List[dict],
                     iterations: int = 1_000_000,
@@ -249,7 +231,22 @@ def run_simulations(tasks: List[dict],
 
     result = {"iterations": iterations, "max_resource": max_resource, "workers": workers, "stats": stats}
     if return_best_order:
-        result["best"] = {"makespan": best_makespan if best_order is not None else None, "order": best_order}
+        if best_order is None:
+            result["best"] = {"makespan": None, "order": None}
+        else:
+            try:
+                _, log_data = _makespan_for_order_log(best_order, task_info, preds_map, max_resource)
+                start_times = log_data.get("start_times", {})
+                start_sequence = [int(tid) for tid, _ in
+                                  sorted(start_times.items(), key=lambda kv: (kv[1], int(kv[0])))]
+            except Exception:
+                start_sequence = best_order
+            result["best"] = {
+                "makespan": best_makespan,
+                "order": start_sequence,  # фактическая хронология стартов
+                "order_topological": best_order  # исходный топологический порядок (для отладки)
+            }
+
 
     # Если запрошен лог — создаём каталог и логируем детально лучший порядок (локально, не из воркеров)
     if log_dir and best_order is not None:
@@ -288,73 +285,120 @@ def _makespan_for_order_log(order: List[int],
                             max_resource: int,
                             time_unit: Optional[float] = None) -> Tuple[float, Dict]:
     """
-    Как _makespan_for_order, но собирает подробный лог:
-    - start_times, finish_times
-    - events: list of {"time", "task", "event": "start"/"end", "resource", "resource_in_use_after"}
-    - optional time_samples: [{"time": t, "resource_in_use": r}, ...] если time_unit задан
-    Возвращает (makespan, log_dict)
+    Как _makespan_for_order, но с детальным логом.
+    Исправлено: используем scheduled_end для учёта того, что задача
+    не может стартовать до запланированного окончания всех предков.
     """
     running = []  # heap of (end_time, task_id, resource)
     resource_in_use = 0
-    finish_times = {}
-    start_times = {}
+    finish_times: Dict[int, float] = {}
+    start_times: Dict[int, float] = {}
+    scheduled_end: Dict[int, float] = {}  # плановые окончания для учёта preds
     makespan = 0.0
     events = []
 
     for tid in order:
         dur, res = task_info[tid]
         preds = preds_map.get(tid, [])
-        earliest = max((finish_times.get(p, 0.0) for p in preds), default=0.0)
+
+        # проверка: все предки должны быть уже запланированы (scheduled_end)
+        missing = [p for p in preds if p not in scheduled_end]
+        if missing:
+            raise RuntimeError(f"Invalid order: predecessors {missing} for task {tid} are not scheduled before it")
+
+        # earliest — по плановым окончаниям предков
+        earliest = max((scheduled_end.get(p, 0.0) for p in preds), default=0.0)
         t = earliest
-        # free finished before or at t
+
+        # освобождаем завершившиеся до или в t
         while running and running[0][0] <= t:
             end_time, ended_tid, ended_res = heapq.heappop(running)
             resource_in_use -= ended_res
             finish_times[ended_tid] = end_time
-            events.append({"time": end_time, "task": ended_tid, "event": "end", "resource": ended_res, "resource_in_use": resource_in_use})
-        # wait for resource if needed
+            events.append({
+                "time": end_time,
+                "task": ended_tid,
+                "event": "end",
+                "resource": ended_res,
+                "resource_in_use": resource_in_use
+            })
+
+        # если не хватает ресурса — ждем ближайшего завершения(ий)
         while resource_in_use + res > max_resource and running:
             end_time, ended_tid, ended_res = heapq.heappop(running)
             if end_time > t:
                 t = end_time
             resource_in_use -= ended_res
             finish_times[ended_tid] = end_time
-            events.append({"time": end_time, "task": ended_tid, "event": "end", "resource": ended_res, "resource_in_use": resource_in_use})
+            events.append({
+                "time": end_time,
+                "task": ended_tid,
+                "event": "end",
+                "resource": ended_res,
+                "resource_in_use": resource_in_use
+            })
             while running and running[0][0] <= t:
                 et2, tid2, er2 = heapq.heappop(running)
                 resource_in_use -= er2
                 finish_times[tid2] = et2
-                events.append({"time": et2, "task": tid2, "event": "end", "resource": er2, "resource_in_use": resource_in_use})
-        # start task
+                events.append({
+                    "time": et2,
+                    "task": tid2,
+                    "event": "end",
+                    "resource": er2,
+                    "resource_in_use": resource_in_use
+                })
+
+        # стартуем задачу
         start = t
         end = start + dur
         start_times[tid] = start
+        scheduled_end[tid] = end  # сохраняем плановое окончание для предков
         makespan = max(makespan, end)
         heapq.heappush(running, (end, tid, res))
         resource_in_use += res
-        events.append({"time": start, "task": tid, "event": "start", "resource": res, "resource_in_use": resource_in_use})
+        events.append({
+            "time": start,
+            "task": tid,
+            "event": "start",
+            "resource": res,
+            "resource_in_use": resource_in_use
+        })
 
     # очистка оставшихся в running
     while running:
         end_time, ended_tid, ended_res = heapq.heappop(running)
         resource_in_use -= ended_res
         finish_times[ended_tid] = end_time
-        events.append({"time": end_time, "task": ended_tid, "event": "end", "resource": ended_res, "resource_in_use": resource_in_use})
+        events.append({
+            "time": end_time,
+            "task": ended_tid,
+            "event": "end",
+            "resource": ended_res,
+            "resource_in_use": resource_in_use
+        })
+
+    events_sorted = sorted(events, key=lambda e: (e["time"], 0 if e["event"] == "end" else 1))
+
+    # отсортированные списки start/finish по времени
+    start_times_sorted = sorted(start_times.items(), key=lambda kv: (kv[1], kv[0]))
+    finish_times_sorted = sorted(finish_times.items(), key=lambda kv: (kv[1], kv[0]))
+
+    start_times_dict = {tid: t for tid, t in start_times_sorted}
+    finish_times_dict = {tid: t for tid, t in finish_times_sorted}
 
     log = {
         "makespan": makespan,
-        "start_times": start_times,
-        "finish_times": finish_times,
-        "events": sorted(events, key=lambda e: (e["time"], 0 if e["event"] == "end" else 1))
+        "start_times": start_times_dict,
+        "finish_times": finish_times_dict,
+        "events": events_sorted
     }
 
-    # optional time sampling (по шагу time_unit) — может быть дорогим при маленьком шаге
+    # optional time sampling
     if time_unit is not None and time_unit > 0:
         samples = []
-        # собираем пары (start, end, resource) для каждой задачи
         intervals = [(start_times[t], finish_times[t], task_info[t][1], t) for t in order]
         t = 0.0
-        # round up to include last moment
         while t <= math.ceil(makespan / time_unit) * time_unit:
             rsum = 0
             active = []
@@ -367,17 +411,3 @@ def _makespan_for_order_log(order: List[int],
         log["time_samples"] = samples
 
     return makespan, log
-
-
-
-# if __name__ == "__main__":
-#     parser = argparse.ArgumentParser(description="Compute project makespan by sampling random orders.")
-#     parser.add_argument("--n_tasks", type=int, default=50, help="Number of tasks to generate")
-#     parser.add_argument("--iterations", type=int, default=1000, help="Number of random orders to sample (use 1000000 for full run)")
-#     parser.add_argument("--max_resource", type=int, default=MAX_RESOURCE_DEFAULT, help="Total available resource")
-#     parser.add_argument("--seed", type=int, default=0, help="Random seed")
-#     args = parser.parse_args()
-#
-#     tasks = generate_random_tasks(args.n_tasks, seed=args.seed)
-#     result = run_simulations(tasks, iterations=args.iterations, max_resource=args.max_resource)
-#     print(json.dumps({"n_tasks": args.n_tasks, "iterations": args.iterations, "result": result}, indent=2, ensure_ascii=False))
