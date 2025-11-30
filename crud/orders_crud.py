@@ -1,4 +1,4 @@
-﻿from typing import Sequence, Optional
+﻿from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,8 +50,3 @@ async def get_order(db: AsyncSession, order_id: int) -> Optional[Order]:
         select(Order).options(*_common_options).where(Order.id == order_id)
     )
     return result.scalars().first()
-
-
-async def list_orders(db: AsyncSession) -> Sequence[Order]:
-    result = await db.execute(select(Order).options(*_common_options))
-    return result.scalars().all()

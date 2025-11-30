@@ -120,7 +120,7 @@ def _makespan_for_order(order: List[int], task_info: Dict[int, Tuple[float, int]
 def _single_simulation_return_order(task_nodes, task_info, preds_map, max_resource, seed):
     """
        Одна симуляция в одном процессе:
-       - генерируем случайный топ\-порядок с заданным seed
+       - генерируем случайный топ-порядок с заданным seed
        - вычисляем makespan для этого порядка
        Возвращаем tuple (makespan, order)
     """
@@ -148,7 +148,7 @@ def run_simulations(tasks: List[dict],
                     log_time_unit: Optional[float] = None):
     """
         Главная функция:
-        - iterations: сколько случайных порядков сгенерировать и оценить (в задании: 1\,000\,000).
+        - iterations: сколько случайных порядков сгенерировать и оценить (в задании: 1,000,000).
         - Определяет workers: если None — берёт число ядер * 2 ограниченное 32.
         - Параллельно распределяет iterations симуляций между процессами с помощью ProcessPoolExecutor.
         - Для каждой симуляции обновляет статистику онлайн:

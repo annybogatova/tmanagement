@@ -1,4 +1,4 @@
-﻿from typing import List, Optional, Sequence
+﻿from typing import List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -24,13 +24,6 @@ async def get_task(db: AsyncSession, task_id: int) -> Optional[Task]:
         select(Task).options(selectinload(Task.preds_rel)).where(Task.id == task_id)
     )
     return result.scalars().first()
-
-
-async def list_tasks(db: AsyncSession) -> Sequence[Task]:
-    result = await db.execute(
-        select(Task).options(selectinload(Task.preds_rel))
-    )
-    return result.scalars().all()
 
 
 async def delete_task(db: AsyncSession, task_id: int) -> bool:
