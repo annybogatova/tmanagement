@@ -35,15 +35,6 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 4. Swagger UI: `http://<ваш_ip>:8000/docs`
 
-## Тесты
-- Запуск тестов (сервер должен быть запущен):
-```bash
-SERVICE_HOST=127.0.0.1:8000 pytest -v -s tests
-```
-Важно: в запросах поле `start_date` должно быть строкой в ISO формате (`"YYYY-MM-DD"`). 
-
-Ошибка `TypeError: Object of type date is not JSON serializable` появляется, если послать `date` объект в `json` вместо строки — используйте `date.isoformat()`.
-
 ## Основные эндпоинты
 ### Заказы
 - `POST /orders` — создать заказ  
