@@ -247,7 +247,6 @@ def run_simulations(tasks: List[dict],
                 "order_topological": best_order  # исходный топологический порядок (для отладки)
             }
 
-
     # Если запрошен лог — создаём каталог и логируем детально лучший порядок (локально, не из воркеров)
     if log_dir and best_order is not None:
         try:

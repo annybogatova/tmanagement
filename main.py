@@ -1,4 +1,6 @@
-﻿from contextlib import asynccontextmanager
+﻿import asyncio
+import socket
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends
 from sqlalchemy import text
@@ -10,13 +12,39 @@ from routers import orders_routers, tasks_routers, calculate_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # вызываем инициализацию БД при старте
-    await init_db()
+    # --- Автоопределение IP ---
+    def get_local_ip():
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            print("Exception")
+            return "127.0.0.1"
 
+    loop = asyncio.get_event_loop()
+    local_ip = await loop.run_in_executor(None, get_local_ip)
+
+    print("\n" + "="*60)
+    print("FASTAPI СЕРВЕР ЗАПУЩЕН")
+    print("Локально:          http://127.0.0.1:8000")
+    print(f"С телефона:        http://{local_ip}:8000")
+    print(f"Swagger:           http://{local_ip}:8000/docs")
+    print(f"Redoc:             http://{local_ip}:8000/redoc")
+    print("="*60 + "\n")
+
+    # --- Инициализация БД ---
+    await init_db()
     yield
 
-
-app = FastAPI(lifespan=lifespan)
+# --- Создание приложения ---
+app = FastAPI(
+    lifespan=lifespan,
+    title="Мой API",
+    version="1.0.0"
+)
 
 
 @app.get("/ping-db")
